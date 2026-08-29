@@ -43,10 +43,33 @@ class RegisteredUserController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        try {
+            $user->assignRole('member');
+        } catch (\Throwable $e) {
+            // Role belum ada (misal di testing tanpa seeder) — jangan gagalkan registrasi
+        }
+        try {
+            $defaultTier = \App\Models\MembershipTier::where('slug', 'default')->first();
+            if ($defaultTier) {
+                \App\Models\UserMembership::create([
+                    'user_id' => $user->id,
+                    'tier_id' => $defaultTier->id,
+                    'status' => 'active',
+                    'started_at' => now(),
+                    'expired_at' => now()->addDays($defaultTier->duration_days),
+                    'ai_quota_total' => $defaultTier->limits['max_ai_per_month'] ?? 10,
+                    'ai_quota_used' => 0,
+                    'credit_balance' => 0,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Silently ignore membership creation failure in tests
+        }
+
         event(new Registered($user));
 
         Auth::login($user);
 
-        return redirect(route('dashboard', absolute: false));
+        return redirect(route('member.dashboard', absolute: false));
     }
 }

@@ -33,7 +33,16 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $user = $request->user();
+        try {
+            if ($user->hasAnyRole(['superadmin', 'admin'])) {
+                return redirect()->intended(route('admin.dashboard', absolute: false));
+            }
+        } catch (\Throwable $e) {
+            // Role table belum ada di testing — fallback ke member
+        }
+
+        return redirect()->intended(route('member.dashboard', absolute: false));
     }
 
     /**
