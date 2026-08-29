@@ -27,16 +27,15 @@ class AiService
         $model = $this->resolveModel($modelValue, $provider);
         $prompts = config('ai.prompts', []);
         $stepPrompt = $prompts[$step] ?? ['name' => "Langkah $step"];
-        $system = $stepPrompt['system'] ?? 'Kamu asisten PRD.';
 
-        // Untuk opencode_go/zen dan key test, tetap mock tapi anggap valid untuk UI
+        [$system, $userContent, $images] = $this->renderPrompt($step, $input, $stepPrompt);
+
         $isTestKey = str_starts_with($provider->api_key ?? '', 'sk-test');
         $isOpenCode = in_array($provider->provider, ['opencode_go','opencode_zen']);
 
         if (!$isTestKey && !$isOpenCode) {
-            $real = $this->callProvider($provider, $model, $step, $input);
+            $real = $this->callProvider($provider, $model, $step, $input, $system, $userContent, $images);
             if (!isset($real['error'])) return $real;
-            // fallback ke mock dengan info error
             return [
                 'provider' => $provider->provider,
                 'model' => $model,
@@ -48,9 +47,8 @@ class AiService
             ];
         }
 
-        // OpenCode & test key: mock tapi siap
         if ($isOpenCode) {
-            $try = $this->callProvider($provider, $model, $step, $input);
+            $try = $this->callProvider($provider, $model, $step, $input, $system, $userContent, $images);
             if (!isset($try['error'])) return $try;
         }
 
@@ -62,6 +60,60 @@ class AiService
             'mock' => true,
             'content' => "[MOCK] Hasil AI {$provider->label} ($model) untuk langkah $step — input: " . json_encode($input, JSON_UNESCAPED_UNICODE),
         ];
+    }
+
+    private function renderPrompt(int $step, array $input, array $stepPrompt): array
+    {
+        $system = $stepPrompt['system'] ?? 'Kamu asisten PRD.';
+        $template = $stepPrompt['user_template'] ?? null;
+
+        // Build vars with defaults
+        $vars = [
+            'title' => $input['title'] ?? $input['project_title'] ?? '-',
+            'description' => $input['description'] ?? '-',
+            'user_message' => $input['user_message'] ?? $input['message'] ?? json_encode($input, JSON_UNESCAPED_UNICODE),
+            'attachment_text' => $input['attachment_text'] ?? '-',
+            'history' => $this->formatHistory($input['history'] ?? []),
+            'step1_content' => $this->stringify($input['step1_content'] ?? $input['step1_final'] ?? '-'),
+            'step1_final' => $this->stringify($input['step1_final'] ?? $input['step1_content'] ?? '-'),
+            'step2_final' => $this->stringify($input['step2_final'] ?? $input['step2_content'] ?? '-'),
+            'stack' => $this->stringify($input['stack'] ?? '-'),
+            'industry_or_auto' => $input['industry'] ?? $input['industry_or_auto'] ?? 'auto-deteksi',
+        ];
+
+        if ($template) {
+            $userContent = $template;
+            foreach ($vars as $k => $v) {
+                $userContent = str_replace('{{'.$k.'}}', $v, $userContent);
+            }
+            // clean any leftover {{...}}
+            $userContent = preg_replace('/\{\{[^}]+\}\}/', '-', $userContent);
+        } else {
+            $userContent = json_encode($input, JSON_UNESCAPED_UNICODE);
+        }
+
+        $images = $input['images'] ?? [];
+
+        return [$system, $userContent, $images];
+    }
+
+    private function formatHistory($history): string
+    {
+        if (empty($history) || !is_array($history)) return '-';
+        $out = [];
+        foreach (array_slice($history, -3) as $h) {
+            $role = $h['role'] ?? 'user';
+            $text = $h['text'] ?? $h['content'] ?? json_encode($h, JSON_UNESCAPED_UNICODE);
+            $out[] = strtoupper($role).': '.$text;
+        }
+        return implode("\n", $out) ?: '-';
+    }
+
+    private function stringify($val): string
+    {
+        if (is_string($val)) return $val;
+        if (is_null($val)) return '-';
+        return json_encode($val, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     }
 
     public function testConnection(AiProvider $provider): array
@@ -82,23 +134,25 @@ class AiService
         return ['ok' => true, 'message' => 'Koneksi OK, model merespons.', 'models' => $fetch['models'], 'sample' => $gen['content'] ?? ''];
     }
 
-    private function callProvider(AiProvider $provider, string $model, int $step, array $input): array
+    private function callProvider(AiProvider $provider, string $model, int $step, array $input, ?string $system = null, ?string $userContent = null, array $images = []): array
     {
-        $prompts = config('ai.prompts', []);
-        $stepPrompt = $prompts[$step] ?? ['name' => "Langkah $step", 'system' => 'Kamu asisten PRD.'];
-        $system = $stepPrompt['system'] ?? '';
-        $userContent = json_encode($input, JSON_UNESCAPED_UNICODE);
+        if ($system === null || $userContent === null) {
+            $prompts = config('ai.prompts', []);
+            $stepPrompt = $prompts[$step] ?? ['name' => "Langkah $step", 'system' => 'Kamu asisten PRD.'];
+            $system = $system ?? $stepPrompt['system'] ?? '';
+            $userContent = $userContent ?? json_encode($input, JSON_UNESCAPED_UNICODE);
+        }
         try {
             return match ($provider->provider) {
-                'openai' => $this->callOpenAI($provider, $model, $system, $userContent, $step),
-                'gemini' => $this->callGemini($provider, $model, $system, $userContent),
-                'anthropic' => $this->callAnthropic($provider, $model, $system, $userContent),
-                'groq' => $this->callGroq($provider, $model, $system, $userContent),
-                'deepseek' => $this->callOpenAI($provider, $model, $system, $userContent, $step, 'https://api.deepseek.com/v1'),
-                'openrouter' => $this->callOpenAI($provider, $model, $system, $userContent, $step, 'https://openrouter.ai/api/v1'),
-                'mistral' => $this->callMistral($provider, $model, $system, $userContent),
-                'opencode_go' => $this->callOpenCode($provider, $model, $system, $userContent, 'go'),
-                'opencode_zen' => $this->callOpenCode($provider, $model, $system, $userContent, 'zen'),
+                'openai' => $this->callOpenAI($provider, $model, $system, $userContent, $step, null, $images),
+                'gemini' => $this->callGemini($provider, $model, $system, $userContent, $images),
+                'anthropic' => $this->callAnthropic($provider, $model, $system, $userContent, $images),
+                'groq' => $this->callGroq($provider, $model, $system, $userContent, $images),
+                'deepseek' => $this->callOpenAI($provider, $model, $system, $userContent, $step, 'https://api.deepseek.com/v1', $images),
+                'openrouter' => $this->callOpenAI($provider, $model, $system, $userContent, $step, 'https://openrouter.ai/api/v1', $images),
+                'mistral' => $this->callMistral($provider, $model, $system, $userContent, $images),
+                'opencode_go' => $this->callOpenCode($provider, $model, $system, $userContent, 'go', $images),
+                'opencode_zen' => $this->callOpenCode($provider, $model, $system, $userContent, 'zen', $images),
                 default => ['error' => 'Provider tidak dikenal'],
             };
         } catch (\Throwable $e) {
@@ -106,68 +160,94 @@ class AiService
         }
     }
 
-    private function callOpenAI(AiProvider $provider, string $model, string $system, string $userContent, int $step, ?string $baseOverride = null): array
+    private function callOpenAI(AiProvider $provider, string $model, string $system, string $userContent, int $step, ?string $baseOverride = null, array $images = []): array
     {
         $base = $baseOverride ?: ($provider->base_url ?: 'https://api.openai.com/v1');
         $url = rtrim($base, '/') . '/chat/completions';
-        $res = Http::withToken($provider->api_key)->timeout(25)->post($url, [
+        $maxTokens = in_array($step, [3]) ? 1500 : 1200;
+        $messages = [
+            ['role' => 'system', 'content' => $system],
+        ];
+        if (!empty($images)) {
+            $contentParts = [['type' => 'text', 'text' => $userContent]];
+            foreach ($images as $b64) {
+                $contentParts[] = ['type' => 'image_url', 'image_url' => ['url' => 'data:image/jpeg;base64,'.$b64]];
+            }
+            $messages[] = ['role' => 'user', 'content' => $contentParts];
+        } else {
+            $messages[] = ['role' => 'user', 'content' => $userContent];
+        }
+        $payload = [
             'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $system],
-                ['role' => 'user', 'content' => $userContent],
-            ],
+            'messages' => $messages,
             'temperature' => 0.7,
-            'max_tokens' => 800,
-        ]);
+            'max_tokens' => $maxTokens,
+        ];
+        if (in_array($step, [1,2,3])) $payload['response_format'] = ['type' => 'json_object'];
+        $res = Http::withToken($provider->api_key)->timeout(30)->post($url, $payload);
         if ($res->failed()) return ['error' => 'OpenAI '.$res->status().': '.$res->body()];
         $content = $res->json('choices.0.message.content') ?? $res->json('choices.0.text') ?? '—';
         return ['provider'=>$provider->provider,'model'=>$model,'step'=>$step,'content'=>$content,'mock'=>false];
     }
 
-    private function callGemini(AiProvider $provider, string $model, string $system, string $userContent): array
+    private function callGemini(AiProvider $provider, string $model, string $system, string $userContent, array $images = []): array
     {
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . $provider->api_key;
-        $res = Http::timeout(25)->post($url, [
-            'contents' => [['parts' => [['text' => $system . "\n\n" . $userContent]]]],
-            'generationConfig' => ['temperature' => 0.7, 'maxOutputTokens' => 800],
+        $parts = [['text' => $system . "\n\n" . $userContent . "\n\nHANYA output JSON valid."]];
+        foreach ($images as $b64) {
+            $parts[] = ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => $b64]];
+        }
+        $res = Http::timeout(30)->post($url, [
+            'contents' => [['parts' => $parts]],
+            'generationConfig' => ['temperature' => 0.7, 'maxOutputTokens' => 1500],
         ]);
         if ($res->failed()) return ['error' => 'Gemini '.$res->status().': '.$res->body()];
         $content = $res->json('candidates.0.content.parts.0.text') ?? '—';
         return ['provider'=>$provider->provider,'model'=>$model,'content'=>$content,'mock'=>false];
     }
 
-    private function callAnthropic(AiProvider $provider, string $model, string $system, string $userContent): array
+    private function callAnthropic(AiProvider $provider, string $model, string $system, string $userContent, array $images = []): array
     {
-        $res = Http::withHeaders(['x-api-key' => $provider->api_key, 'anthropic-version' => '2023-06-01'])->timeout(25)->post('https://api.anthropic.com/v1/messages', [
+        $content = [['type' => 'text', 'text' => $userContent . "\n\nHANYA output JSON valid."]];
+        foreach ($images as $b64) {
+            $content[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/jpeg', 'data' => $b64]];
+        }
+        $res = Http::withHeaders(['x-api-key' => $provider->api_key, 'anthropic-version' => '2023-06-01'])->timeout(30)->post('https://api.anthropic.com/v1/messages', [
             'model' => $model,
-            'max_tokens' => 800,
+            'max_tokens' => 1500,
             'system' => $system,
-            'messages' => [['role'=>'user','content'=>$userContent]],
+            'messages' => [['role'=>'user','content'=>$content]],
         ]);
         if ($res->failed()) return ['error' => 'Anthropic '.$res->status().': '.$res->body()];
         $content = $res->json('content.0.text') ?? '—';
         return ['provider'=>$provider->provider,'model'=>$model,'content'=>$content,'mock'=>false];
     }
 
-    private function callGroq(AiProvider $provider, string $model, string $system, string $userContent): array
+    private function callGroq(AiProvider $provider, string $model, string $system, string $userContent, array $images = []): array
     {
-        return $this->callOpenAI($provider, $model, $system, $userContent, 0, 'https://api.groq.com/openai/v1');
+        return $this->callOpenAI($provider, $model, $system, $userContent, 0, 'https://api.groq.com/openai/v1', $images);
     }
 
-    private function callMistral(AiProvider $provider, string $model, string $system, string $userContent): array
+    private function callMistral(AiProvider $provider, string $model, string $system, string $userContent, array $images = []): array
     {
-        return $this->callOpenAI($provider, $model, $system, $userContent, 0, 'https://api.mistral.ai/v1');
+        return $this->callOpenAI($provider, $model, $system, $userContent, 0, 'https://api.mistral.ai/v1', $images);
     }
 
-    private function callOpenCode(AiProvider $provider, string $model, string $system, string $userContent, string $variant): array
+    private function callOpenCode(AiProvider $provider, string $model, string $system, string $userContent, string $variant, array $images = []): array
     {
         $base = $provider->base_url ?: 'https://opencode.ai/zen/go/v1';
         $url = rtrim($base, '/') . '/chat/completions';
+        $userMsg = $userContent;
+        if (!empty($images)) {
+            $parts = [['type'=>'text','text'=>$userContent]];
+            foreach ($images as $b64) $parts[] = ['type'=>'image_url','image_url'=>['url'=>'data:image/jpeg;base64,'.$b64]];
+            $userMsg = $parts;
+        }
         $res = Http::withToken($provider->api_key)->timeout(15)->post($url, [
             'model' => $model,
             'messages' => [
                 ['role'=>'system','content'=>$system],
-                ['role'=>'user','content'=>$userContent],
+                ['role'=>'user','content'=>$userMsg],
             ],
             'temperature' => 0.7,
         ]);

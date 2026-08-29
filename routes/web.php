@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Member\DashboardController as MemberDashboardController;
 use App\Http\Controllers\Member\ProjectController as MemberProjectController;
+use App\Http\Controllers\Member\WizardController as MemberWizardController;
 use App\Http\Controllers\Member\BillingController as MemberBillingController;
 use App\Http\Controllers\Member\TopUpController as MemberTopUpController;
 use App\Http\Controllers\ProfileController;
@@ -82,6 +83,16 @@ Route::middleware(['auth', 'verified'])->prefix('member')->name('member.')->grou
     Route::get('/dashboard', [MemberDashboardController::class, 'index'])->name('dashboard');
     Route::get('/projects', [MemberProjectController::class, 'index'])->name('projects.index');
     Route::get('/projects/create', fn() => Inertia::render('Member/Projects/Create'))->name('projects.create');
+    Route::post('/projects', [MemberProjectController::class, 'store'])->name('projects.store');
+    Route::get('/projects/{project}', [MemberProjectController::class, 'show'])->name('projects.show');
+    Route::delete('/projects/{project}', [MemberProjectController::class, 'destroy'])->name('projects.destroy');
+
+    // Wizard L1-3
+    Route::get('/projects/{project}/wizard/{step}', [MemberWizardController::class, 'show'])->name('wizard.show');
+    Route::post('/projects/{project}/wizard/{step}/chat', [MemberWizardController::class, 'chat'])->middleware('throttle:10,1')->name('wizard.chat');
+    Route::put('/projects/{project}/wizard/{step}/final', [MemberWizardController::class, 'saveFinal'])->name('wizard.final');
+    Route::get('/projects/{project}/wizard-zip', [MemberWizardController::class, 'downloadZip'])->name('wizard.zip');
+
     Route::get('/profile', fn() => redirect()->route('profile.edit'))->name('profile');
 
     // Billing & Subscription

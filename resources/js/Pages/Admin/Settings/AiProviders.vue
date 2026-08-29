@@ -82,9 +82,17 @@ const toggleModel = (id) => {
 };
 
 const submit = () => {
+    // debug: log payload
+    console.log('submit ai-provider', { provider: form.provider, has_key: !!form.api_key, enabled: form.enabled_models.length, base_url: form.base_url });
     form.post(route('admin.ai-providers.store'), {
         preserveScroll: true,
-        onSuccess: () => { showing.value = false; previewModels.value = []; },
+        onSuccess: () => { showing.value = false; previewModels.value = []; previewError.value=''; },
+        onError: (errors) => {
+            console.error('ai-provider store errors', errors);
+            // gabungkan error ke previewError agar terlihat
+            const msg = Object.values(errors).flat().join(' | ');
+            if(msg) previewError.value = msg;
+        },
     });
 };
 
@@ -213,11 +221,13 @@ const updateEnabled = (p, checked, modelId) => {
                         <label class="text-xs font-semibold">API Key *</label>
                         <input v-model="form.api_key" type="password" class="input-base mt-1 w-full font-mono text-sm" placeholder="sk-... atau AIza..." required />
                         <p v-if="form.errors.api_key" class="mt-1 text-xs" style="color: var(--danger);">{{ form.errors.api_key }}</p>
+                        <p v-if="form.errors.enabled_models" class="mt-1 text-xs" style="color: var(--danger);">{{ form.errors.enabled_models }}</p>
                         <p class="mt-1 text-xs" style="color: var(--text-soft);">Akan disimpan ter-encrypt (APP_KEY). Tidak tampil plain text lagi.</p>
                     </div>
                     <div>
                         <label class="text-xs font-semibold">Base URL (opsional)</label>
                         <input v-model="form.base_url" class="input-base mt-1 w-full font-mono text-sm" placeholder="https://api.openai.com/v1 — kosongkan jika default" />
+                        <p v-if="form.errors.base_url" class="mt-1 text-xs" style="color: var(--danger);">{{ form.errors.base_url }}</p>
                         <p class="text-xs mt-1" style="color: var(--text-soft);">Untuk OpenRouter / proxy self-host.</p>
                     </div>
 

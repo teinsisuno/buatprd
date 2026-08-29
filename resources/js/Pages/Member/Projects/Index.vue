@@ -47,10 +47,13 @@ const apply = () => router.get(route('member.projects.index'), { search: search.
             <div v-else class="mt-6 grid gap-3">
                 <article v-for="p in projects.data" :key="p.id" class="card-hover flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h3 class="font-semibold">{{ p.title }}</h3>
+                        <Link :href="route('member.wizard.show',[p.id,1])" class="font-semibold hover:underline" style="color: var(--brand);">{{ p.title }}</Link>
                         <p class="mt-1 text-xs" style="color: var(--text-soft);">{{ p.status }} • {{ p.sections_count }}/8 langkah • {{ p.progress }}% • {{ new Date(p.updated_at).toLocaleDateString('id-ID') }}</p>
                     </div>
-                    <span class="rounded-full px-3 py-1 text-xs font-semibold self-start sm:self-center" style="background: var(--bg-elevated);">{{ p.slug.slice(0,12) }}</span>
+                    <div class="flex items-center gap-2 self-start sm:self-center">
+                        <Link :href="route('member.wizard.show',[p.id,1])" class="btn-secondary text-xs py-1 px-3">Buka Wizard</Link>
+                        <span class="rounded-full px-3 py-1 text-xs font-semibold" style="background: var(--bg-elevated);">{{ p.slug.slice(0,12) }}</span>
+                    </div>
                 </article>
             </div>
 

@@ -1,3 +1,5 @@
+window._originalFetch = window.fetch.bind(window);
+
 window.fetch = async (url, options = {}) => {
     options.headers = {
         ...options.headers,
@@ -23,5 +25,3 @@ window.fetch = async (url, options = {}) => {
 
     return response;
 };
-
-window._originalFetch = window.fetch.bind(window);

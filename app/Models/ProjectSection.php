@@ -13,6 +13,7 @@ class ProjectSection extends Model
     {
         return [
             'ai_generated' => 'boolean',
+            'content' => 'array',
         ];
     }
 

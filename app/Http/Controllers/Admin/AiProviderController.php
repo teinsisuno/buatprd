@@ -47,7 +47,7 @@ class AiProviderController extends Controller
             'provider' => ['required','string', Rule::in(array_keys(AiProvider::PROVIDERS)), Rule::unique('ai_providers','provider')],
             'api_key' => ['required','string','min:10','max:500'],
             'base_url' => ['nullable','url','max:255'],
-            'enabled_models' => ['nullable','array','max:30'],
+            'enabled_models' => ['nullable','array','max:100'],
             'enabled_models.*' => ['string','max:100'],
             'is_active' => ['boolean'],
         ]);
@@ -96,7 +96,7 @@ class AiProviderController extends Controller
         $data = $request->validate([
             'api_key' => ['nullable','string','min:10','max:500'],
             'base_url' => ['nullable','url','max:255'],
-            'enabled_models' => ['nullable','array','max:30'],
+            'enabled_models' => ['nullable','array','max:100'],
             'enabled_models.*' => ['string','max:100'],
             'is_active' => ['boolean'],
         ]);
