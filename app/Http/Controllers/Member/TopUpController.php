@@ -44,7 +44,7 @@ class TopUpController extends Controller
         }
 
         $file = $request->file('proof');
-        $path = $file->store('proofs','local');
+        $path = $file->store('private/proofs', 'local');
 
         Transaction::create([
             'user_id' => $user->id,

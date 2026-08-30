@@ -24,17 +24,12 @@ const formatRupiah = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', 
         </template>
 
         <div class="container-base py-8 sm:py-10">
-            <!-- Stats -->
-            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <!-- Stats — tanpa Project (dibersihkan) -->
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <div class="card">
                     <p class="text-sm" style="color: var(--text-muted);">Total User</p>
                     <p class="mt-1 text-3xl font-bold">{{ stats.total_users }}</p>
                     <p class="mt-2 text-xs" style="color: var(--text-soft);">{{ stats.total_members }} member</p>
-                </div>
-                <div class="card">
-                    <p class="text-sm" style="color: var(--text-muted);">Total Project</p>
-                    <p class="mt-1 text-3xl font-bold">{{ stats.total_projects }}</p>
-                    <p class="mt-2 text-xs" style="color: var(--success);">Live</p>
                 </div>
                 <div class="card border-warning/30" style="border-color: color-mix(in srgb, var(--warning) 30%, var(--border-soft));">
                     <p class="text-sm" style="color: var(--text-muted);">Pending Transaksi</p>

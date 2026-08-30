@@ -10,9 +10,9 @@ return new class extends Migration {
             $table->string('title');
             $table->string('slug');
             $table->text('description')->nullable();
-            $table->string('status')->default('draft'); // draft, in_progress, completed
+            $table->string('status')->default('draft');
             $table->unsignedTinyInteger('current_step')->default(1);
-            $table->unsignedTinyInteger('progress')->default(0); // 0-100
+            $table->unsignedTinyInteger('progress')->default(0);
             $table->boolean('is_template')->default(false);
             $table->foreignId('template_id')->nullable()->constrained('projects')->nullOnDelete();
             $table->timestamps();

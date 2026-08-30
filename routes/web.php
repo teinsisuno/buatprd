@@ -7,10 +7,11 @@ use App\Http\Controllers\Admin\TransactionController as AdminTransactionControll
 use App\Http\Controllers\Admin\CouponController as AdminCouponController;
 use App\Http\Controllers\Admin\AiProviderController as AdminAiProviderController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
-use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\Member\DashboardController as MemberDashboardController;
+use App\Http\Controllers\Admin\WizardPromptController as AdminWizardPromptController;
 use App\Http\Controllers\Member\ProjectController as MemberProjectController;
 use App\Http\Controllers\Member\WizardController as MemberWizardController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\Member\DashboardController as MemberDashboardController;
 use App\Http\Controllers\Member\BillingController as MemberBillingController;
 use App\Http\Controllers\Member\TopUpController as MemberTopUpController;
 use App\Http\Controllers\ProfileController;
@@ -63,6 +64,7 @@ Route::middleware(['auth', 'verified', 'role:superadmin|admin'])->prefix('admin'
     Route::put('/ai-providers/{aiProvider}', [AdminAiProviderController::class, 'update'])->name('ai-providers.update');
     Route::delete('/ai-providers/{aiProvider}', [AdminAiProviderController::class, 'destroy'])->name('ai-providers.destroy');
     Route::post('/ai-providers/{aiProvider}/default', [AdminAiProviderController::class, 'setDefault'])->name('ai-providers.default');
+    Route::post('/ai-providers/default-model', [AdminAiProviderController::class, 'setDefaultModel'])->name('ai-providers.defaultModel');
     Route::post('/ai-providers/{aiProvider}/toggle', [AdminAiProviderController::class, 'toggle'])->name('ai-providers.toggle');
     Route::post('/ai-providers/{aiProvider}/fetch', [AdminAiProviderController::class, 'fetchModels'])->name('ai-providers.fetch');
     Route::post('/ai-providers/{aiProvider}/test', [AdminAiProviderController::class, 'test'])->name('ai-providers.test');
@@ -71,6 +73,16 @@ Route::middleware(['auth', 'verified', 'role:superadmin|admin'])->prefix('admin'
     // Settings (general, payment, security) — superadmin
     Route::get('/settings', [AdminSettingController::class, 'index'])->name('settings.index');
     Route::put('/settings', [AdminSettingController::class, 'update'])->name('settings.update');
+
+    // Wizard Prompts — superadmin only
+    Route::middleware(['role:superadmin'])->group(function () {
+        Route::get('/wizard-prompts', [AdminWizardPromptController::class, 'index'])->name('wizard-prompts.index');
+        Route::get('/wizard-prompts/{step}', [AdminWizardPromptController::class, 'show'])->name('wizard-prompts.show');
+        Route::put('/wizard-prompts/{step}', [AdminWizardPromptController::class, 'update'])->name('wizard-prompts.update');
+        Route::post('/wizard-prompts/{step}/test', [AdminWizardPromptController::class, 'test'])->middleware('throttle:5,1')->name('wizard-prompts.test');
+        Route::get('/wizard-prompts/{step}/versions', [AdminWizardPromptController::class, 'versions'])->name('wizard-prompts.versions');
+        Route::post('/wizard-prompts/{step}/rollback/{version}', [AdminWizardPromptController::class, 'rollback'])->name('wizard-prompts.rollback');
+    });
 
     // Alias /paket to same membership management
     Route::get('/paket', [AdminMembershipController::class, 'index'])->name('paket.index');
@@ -81,19 +93,25 @@ Route::middleware(['auth', 'verified', 'role:superadmin|admin'])->prefix('admin'
 // Member routes
 Route::middleware(['auth', 'verified'])->prefix('member')->name('member.')->group(function () {
     Route::get('/dashboard', [MemberDashboardController::class, 'index'])->name('dashboard');
+
+    Route::get('/profile', fn() => redirect()->route('profile.edit'))->name('profile');
+
+    // Projects & Wizard (Fase C — L1-L3 chat iteratively)
     Route::get('/projects', [MemberProjectController::class, 'index'])->name('projects.index');
     Route::get('/projects/create', fn() => Inertia::render('Member/Projects/Create'))->name('projects.create');
     Route::post('/projects', [MemberProjectController::class, 'store'])->name('projects.store');
     Route::get('/projects/{project}', [MemberProjectController::class, 'show'])->name('projects.show');
     Route::delete('/projects/{project}', [MemberProjectController::class, 'destroy'])->name('projects.destroy');
 
-    // Wizard L1-3
     Route::get('/projects/{project}/wizard/{step}', [MemberWizardController::class, 'show'])->name('wizard.show');
     Route::post('/projects/{project}/wizard/{step}/chat', [MemberWizardController::class, 'chat'])->middleware('throttle:10,1')->name('wizard.chat');
     Route::put('/projects/{project}/wizard/{step}/final', [MemberWizardController::class, 'saveFinal'])->name('wizard.final');
-    Route::get('/projects/{project}/wizard-zip', [MemberWizardController::class, 'downloadZip'])->name('wizard.zip');
+    Route::get('/projects/{project}/wizard/zip', [MemberWizardController::class, 'downloadZip'])->name('wizard.zip');
 
-    Route::get('/profile', fn() => redirect()->route('profile.edit'))->name('profile');
+    // AI models for wizard dropdown
+    Route::get('/ai/models', function (App\Services\AiService $ai) {
+        return response()->json($ai->availableModels());
+    })->name('ai.models');
 
     // Billing & Subscription
     Route::get('/billing', [MemberBillingController::class, 'index'])->name('billing.index');
@@ -102,11 +120,6 @@ Route::middleware(['auth', 'verified'])->prefix('member')->name('member.')->grou
     Route::get('/billing/invoice/{transaction}', [MemberBillingController::class, 'invoice'])->name('billing.invoice');
     Route::get('/transactions/{transaction}/proof', [InvoiceController::class, 'proof'])->name('transactions.proof');
     Route::get('/transactions/{transaction}/invoice', [InvoiceController::class, 'memberInvoice'])->name('transactions.invoice');
-
-    // AI models available for wizard
-    Route::get('/ai/models', function (\App\Services\AiService $ai) {
-        return response()->json($ai->availableModels());
-    })->name('ai.models');
 
     // TopUp
     Route::get('/topup', [MemberTopUpController::class, 'index'])->name('topup.index');

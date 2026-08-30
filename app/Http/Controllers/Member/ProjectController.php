@@ -38,8 +38,7 @@ class ProjectController extends Controller
         $user = $request->user();
         $membership = $user->activeMembership()->with('tier')->first();
         $limit = $membership?->tier?->limits['max_projects'] ?? 2;
-        // unlimited check - if null or >=999
-        if ($limit !== null && $limit < 999) {
+        if ($limit !== null && $limit < 9999) {
             $count = $user->projects()->count();
             if ($count >= $limit) {
                 return back()->with('error', "Limit project tercapai ($limit). Upgrade paket untuk tambah project.");
@@ -61,7 +60,7 @@ class ProjectController extends Controller
                 'content' => ['history'=>[],'final_output'=>null],
             ]);
         }
-        return redirect()->route('member.wizard.show', [$project->id, 1])->with('success','Project dibuat. Mulai Langkah 1.');
+        return redirect()->route('member.wizard.show', [$project->id, 1])->with('success','Project dibuat. Mulai Langkah 1 — Problem & Vision.');
     }
 
     public function show(Request $request, Project $project): RedirectResponse

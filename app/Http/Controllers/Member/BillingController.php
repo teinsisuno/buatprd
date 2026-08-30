@@ -18,7 +18,9 @@ class BillingController extends Controller
     {
         $user = $request->user();
         $membership = $user->activeMembership()->with('tier')->first() ?? $user->membership()->with('tier')->latest()->first();
-        $tiers = MembershipTier::where('is_active', true)->orderBy('sort_order')->get();
+        $tiers = \Illuminate\Support\Facades\Cache::remember('membership_tiers', 3600, fn() => 
+            MembershipTier::where('is_active', true)->orderBy('sort_order')->get()
+        );
         $transactions = $user->transactions()->with(['tier','coupon'])->latest()->paginate(10)->withQueryString();
 
         return Inertia::render('Member/Billing/Index', [
@@ -85,6 +87,14 @@ class BillingController extends Controller
             if ($coupon->applicable_tier_id && $coupon->applicable_tier_id !== $tier->id) {
                 return back()->with('error', 'Kupon tidak berlaku untuk paket ini.');
             }
+            // check per-user usage limit
+            $usedByUser = Transaction::where('user_id', $user->id)
+                ->where('coupon_id', $coupon->id)
+                ->where('status', '!=', 'rejected')
+                ->count();
+            if ($usedByUser >= $coupon->max_uses_per_user) {
+                return back()->with('error', "Kupon {$coupon->code} sudah pernah kamu pakai sebanyak {$coupon->max_uses_per_user}x.");
+            }
             $discount = $coupon->discountAmount($tier->price);
         }
 
@@ -96,7 +106,7 @@ class BillingController extends Controller
         }
 
         $file = $request->file('proof');
-        $path = $file->store('proofs', 'local');
+        $path = $file->store('private/proofs', 'local');
 
         Transaction::create([
             'user_id' => $user->id,

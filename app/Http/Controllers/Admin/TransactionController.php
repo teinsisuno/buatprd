@@ -58,70 +58,87 @@ class TransactionController extends Controller
 
         $request->validate(['admin_note' => ['nullable','string','max:500']]);
 
-        DB::transaction(function () use ($request, $transaction) {
-            $transaction->update([
-                'status' => 'approved',
-                'admin_note' => $request->input('admin_note'),
-                'approved_by' => auth()->id(),
-                'approved_at' => now(),
-            ]);
+        $lockedTx = null;
+        try {
+            DB::transaction(function () use ($request, $transaction, &$lockedTx) {
+                // lockForUpdate: prevent race condition double-approve
+                $lockedTx = Transaction::where('id', $transaction->id)->lockForUpdate()->first();
+                if (! $lockedTx || $lockedTx->status !== 'pending') {
+                    throw new \RuntimeException('Transaksi sudah diproses oleh admin lain.');
+                }
 
-            $user = $transaction->user;
+                $lockedTx->update([
+                    'status' => 'approved',
+                    'admin_note' => $request->input('admin_note'),
+                    'approved_by' => auth()->id(),
+                    'approved_at' => now(),
+                ]);
 
-            if ($transaction->type === 'subscription' && $transaction->tier_id) {
-                $tier = MembershipTier::find($transaction->tier_id);
-                if ($tier) {
-                    $membership = $user->activeMembership ?? $user->membership()->latest()->first();
-                    if (! $membership) {
-                        $membership = new UserMembership(['user_id' => $user->id]);
+                $user = $lockedTx->user;
+                $lockedTx->load('user');
+
+                if ($lockedTx->type === 'subscription' && $lockedTx->tier_id) {
+                    $tier = MembershipTier::find($lockedTx->tier_id);
+                    if ($tier) {
+                        $membership = $user->activeMembership ?? $user->membership()->latest()->first();
+                        if (! $membership) {
+                            $membership = new UserMembership(['user_id' => $user->id]);
+                        }
+                        $membership->fill([
+                            'tier_id' => $tier->id,
+                            'status' => 'active',
+                            'started_at' => now(),
+                            'expired_at' => now()->addDays($tier->duration_days),
+                            'ai_quota_total' => $tier->limits['max_ai_per_month'] ?? 10,
+                            'ai_quota_used' => 0,
+                        ]);
+                        // keep credit_balance as is
+                        $membership->user_id = $user->id;
+                        $membership->save();
                     }
-                    $membership->fill([
-                        'tier_id' => $tier->id,
-                        'status' => 'active',
-                        'started_at' => now(),
-                        'expired_at' => now()->addDays($tier->duration_days),
-                        'ai_quota_total' => $tier->limits['max_ai_per_month'] ?? 10,
-                        'ai_quota_used' => 0,
-                    ]);
-                    // keep credit_balance as is
-                    $membership->user_id = $user->id;
-                    $membership->save();
+                } elseif ($lockedTx->type === 'topup') {
+                    $options = collect(config('buatprd.topup_options', [
+                        ['amount' => 25000, 'credits' => 50],
+                        ['amount' => 50000, 'credits' => 120],
+                        ['amount' => 100000, 'credits' => 270],
+                    ]));
+                    $match = $options->firstWhere('amount', $lockedTx->amount);
+                    $credits = $match ? $match['credits'] : (int) ($lockedTx->amount / 500);
+                    $membership = $user->activeMembership ?? $user->membership()->latest()->first();
+                    if ($membership) {
+                        $membership->increment('credit_balance', $credits);
+                    } else {
+                        // create default membership with credits
+                        $defaultTier = MembershipTier::where('slug','default')->first();
+                        UserMembership::create([
+                            'user_id' => $user->id,
+                            'tier_id' => $defaultTier?->id,
+                            'status' => 'active',
+                            'started_at' => now(),
+                            'expired_at' => now()->addDays(30),
+                            'ai_quota_total' => $defaultTier?->limits['max_ai_per_month'] ?? 10,
+                            'ai_quota_used' => 0,
+                            'credit_balance' => $credits,
+                        ]);
+                    }
                 }
-            } elseif ($transaction->type === 'topup') {
-                $creditMap = [25000 => 50, 50000 => 120, 100000 => 270];
-                $credits = $creditMap[$transaction->amount] ?? (int) ($transaction->amount / 500); // fallback
-                $membership = $user->activeMembership ?? $user->membership()->latest()->first();
-                if ($membership) {
-                    $membership->increment('credit_balance', $credits);
-                } else {
-                    // create default membership with credits
-                    $defaultTier = MembershipTier::where('slug','default')->first();
-                    UserMembership::create([
-                        'user_id' => $user->id,
-                        'tier_id' => $defaultTier?->id,
-                        'status' => 'active',
-                        'started_at' => now(),
-                        'expired_at' => now()->addDays(30),
-                        'ai_quota_total' => $defaultTier?->limits['max_ai_per_month'] ?? 10,
-                        'ai_quota_used' => 0,
-                        'credit_balance' => $credits,
-                    ]);
+
+                // coupon usage
+                if ($lockedTx->coupon_id) {
+                    $lockedTx->coupon?->increment('used_count');
                 }
-            }
 
-            // coupon usage
-            if ($transaction->coupon_id) {
-                $transaction->coupon?->increment('used_count');
-            }
+                activity()
+                    ->performedOn($lockedTx)
+                    ->causedBy(auth()->user())
+                    ->withProperties(['type' => $lockedTx->type, 'amount' => $lockedTx->amount])
+                    ->log('Approve transaksi #'.$lockedTx->id.' ('.$lockedTx->type.')');
+            });
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
 
-            activity()
-                ->performedOn($transaction)
-                ->causedBy(auth()->user())
-                ->withProperties(['type' => $transaction->type, 'amount' => $transaction->amount])
-                ->log('Approve transaksi #'.$transaction->id.' ('.$transaction->type.')');
-        });
-
-        return back()->with('success', 'Transaksi #'.$transaction->id.' berhasil di-approve. Membership user diperbarui.');
+        return back()->with('success', 'Transaksi #'.$lockedTx->id.' berhasil di-approve. Membership user diperbarui.');
     }
 
     public function reject(Request $request, Transaction $transaction): RedirectResponse

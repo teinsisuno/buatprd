@@ -7,7 +7,7 @@ return new class extends Migration {
         Schema::create('project_versions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('project_id')->constrained()->cascadeOnDelete();
-            $table->string('version'); // 1.0 MVP, 1.1 Next
+            $table->string('version');
             $table->json('snapshot')->nullable();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();

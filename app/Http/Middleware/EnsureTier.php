@@ -21,7 +21,16 @@ class EnsureTier
         }
 
         $limits = $membership->tier->limits ?? [];
-        $hierarchy = ['default' => 0, 'basic' => 1, 'standart' => 2, 'premium' => 3];
+
+        // Build hierarchy dynamically from DB sort_order
+        $hierarchy = \App\Models\MembershipTier::orderBy('sort_order')
+            ->pluck('sort_order', 'slug')
+            ->toArray();
+        // If DB empty, fallback to default
+        if (empty($hierarchy)) {
+            $hierarchy = ['default' => 0, 'basic' => 1, 'standart' => 2, 'premium' => 3];
+        }
+
         $userLevel = $hierarchy[$membership->tier->slug] ?? 0;
         $requiredLevel = $hierarchy[$tierSlug] ?? 0;
 
@@ -37,6 +46,11 @@ class EnsureTier
                 return redirect()->route('member.billing.index')->with('error', "Fitur {$label} butuh paket {$tierSlug} ke atas. Tier kamu: {$membership->tier->name}.");
             }
             return redirect()->route('member.billing.index')->with('error', "Butuh paket {$tierSlug} ke atas. Tier kamu: {$membership->tier->name}.");
+        }
+
+        // Check if membership is expired
+        if ($membership->expired_at && $membership->expired_at->isPast()) {
+            return redirect()->route('member.billing.index')->with('error', "Paket kamu sudah expired ({$membership->expired_at->format('d M Y')}). Perpanjang untuk lanjutkan akses.");
         }
 
         // Feature-specific check

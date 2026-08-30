@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             MembershipTierSeeder::class,
             RoleAndSuperadminSeeder::class,
+            WizardPromptSeeder::class,
         ]);
 
         // Pastikan test user juga dapat default membership kalau ada

@@ -7,7 +7,7 @@ return new class extends Migration {
         Schema::create('project_sections', function (Blueprint $table) {
             $table->id();
             $table->foreignId('project_id')->constrained()->cascadeOnDelete();
-            $table->unsignedTinyInteger('step'); // 1-8
+            $table->unsignedTinyInteger('step');
             $table->string('title');
             $table->longText('content')->nullable();
             $table->boolean('ai_generated')->default(false);

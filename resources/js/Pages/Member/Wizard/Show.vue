@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import MemberLayout from '@/Layouts/MemberLayout.vue';
 import FolderNode from '@/Components/Wizard/FolderNode.vue';
+import AssistantBubble from '@/Components/Wizard/AssistantBubble.vue';
 
 const props = defineProps({
     project: Object,
@@ -290,15 +291,7 @@ const addRootNode = (type) => {
                             </p>
                         </div>
 
-                        <div v-for="(m,i) in history" :key="i" :class="['flex', m.role==='user' ? 'justify-end' : 'justify-start']">
-                            <div :class="['max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-relaxed', m.role==='user' ? 'rounded-br-sm' : 'rounded-bl-sm border']" :style="m.role==='user' ? 'background: var(--brand); color:white;' : 'background: var(--bg-elevated); border-color: var(--border-soft);'">
-                                <p class="whitespace-pre-wrap break-words">{{ m.text }}</p>
-                                <div v-if="m.attachments?.length" class="mt-2 flex flex-wrap gap-1.5">
-                                    <span v-for="a in m.attachments" :key="a.path" class="rounded-full px-2 py-1 text-[0.65rem] font-medium" style="background: rgba(255,255,255,0.18);">{{ a.orig }}</span>
-                                </div>
-                                <p class="mt-1.5 text-[0.65rem] opacity-70">{{ m.model }} • {{ new Date(m.created_at).toLocaleTimeString('id-ID') }} <span v-if="m.mock" class="ml-1 rounded bg-black/15 px-1">MOCK</span></p>
-                            </div>
-                        </div>
+                        <AssistantBubble v-for="(m,i) in history" :key="i" :msg="m" :step="step" />
 
                         <div v-if="loading" class="flex justify-start">
                             <div class="rounded-2xl border px-4 py-3 text-sm animate-pulse" style="background: var(--bg-elevated); border-color: var(--border-soft);">AI sedang berpikir…</div>

@@ -8,6 +8,8 @@ const props = defineProps({
     availableProviders: Array,
     activeModels: Array,
     defaultModelsMap: Object,
+    defaultModel: String,
+    defaultVisionModel: String,
 });
 
 const showing = ref(false);
@@ -26,6 +28,10 @@ const availableToAdd = computed(() => {
     const used = new Set(props.providers.map(p => p.provider));
     return props.availableProviders.filter(p => !used.has(p.value));
 });
+
+const isUtama = (value) => value === props.defaultModel;
+const isVision = (value) => value === props.defaultVisionModel;
+const modelValue = (p, mId) => `${p.provider}:${mId}`;
 
 const openAdd = () => {
     form.reset();
@@ -66,7 +72,6 @@ const fetchPreview = async () => {
         form.enabled_models = previewModels.value.map(m => m.id);
     } catch (e) {
         previewError.value = e.message;
-        // fallback to defaults
         const defaults = props.defaultModelsMap[form.provider]?.default_models || [];
         if (previewModels.value.length === 0 && defaults.length) {
             previewModels.value = defaults.map(id => ({ id, label: id }));
@@ -82,14 +87,10 @@ const toggleModel = (id) => {
 };
 
 const submit = () => {
-    // debug: log payload
-    console.log('submit ai-provider', { provider: form.provider, has_key: !!form.api_key, enabled: form.enabled_models.length, base_url: form.base_url });
     form.post(route('admin.ai-providers.store'), {
         preserveScroll: true,
         onSuccess: () => { showing.value = false; previewModels.value = []; previewError.value=''; },
         onError: (errors) => {
-            console.error('ai-provider store errors', errors);
-            // gabungkan error ke previewError agar terlihat
             const msg = Object.values(errors).flat().join(' | ');
             if(msg) previewError.value = msg;
         },
@@ -97,7 +98,6 @@ const submit = () => {
 };
 
 const toggleActive = (p) => router.post(route('admin.ai-providers.toggle', p.id), {}, { preserveScroll: true });
-const setDefault = (p) => router.post(route('admin.ai-providers.default', p.id), {}, { preserveScroll: true });
 const destroy = (p) => { if (confirm(`Hapus provider ${p.label}?`)) router.delete(route('admin.ai-providers.destroy', p.id), { preserveScroll: true }); };
 const fetchExisting = (p) => router.post(route('admin.ai-providers.fetch', p.id), {}, { preserveScroll: true });
 const testApi = (p) => router.post(route('admin.ai-providers.test', p.id), {}, { preserveScroll: true });
@@ -108,6 +108,10 @@ const updateEnabled = (p, checked, modelId) => {
     else { next = next.filter(m => m !== modelId); }
     router.put(route('admin.ai-providers.update', p.id), { enabled_models: next }, { preserveScroll: true });
 };
+
+const setDefaultModel = (value, type) => {
+    router.post(route('admin.ai-providers.defaultModel'), { value, type }, { preserveScroll: true });
+};
 </script>
 
 <template>
@@ -117,36 +121,45 @@ const updateEnabled = (p, checked, modelId) => {
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                     <h1 class="text-2xl font-bold">AI Providers</h1>
-                    <p class="mt-1 text-sm" style="color: var(--text-muted);">Tambah multiple provider, fetch model via API Key, centang model yang dipakai. Member pilih model di wizard.</p>
+                    <p class="mt-1 text-sm" style="color: var(--text-muted);">Tambah banyak provider, centang model yang aktif. Hanya model yang dicentang yang muncul di wizard member.</p>
+                    <div class="mt-3 rounded-xl border p-3 text-xs leading-relaxed" style="border-color: color-mix(in srgb, var(--brand) 20%, var(--border-soft)); background: color-mix(in srgb, var(--brand) 6%, transparent);">
+                        <p class="font-bold" style="color: var(--brand);">★ Default ada 2 — AI Utama & AI Vision (level MODEL, bukan provider)</p>
+                        <ul class="mt-1.5 list-disc pl-4 space-y-1" style="color: var(--text-muted);">
+                            <li><b style="color: var(--text-main);">Boleh aktif banyak provider sekaligus</b> — semua yang <span class="rounded px-1.5 py-0.5 text-[0.7rem] font-bold" style="background: var(--bg-elevated);">Aktif</span> = model centangnya muncul di dropdown wizard.</li>
+                            <li><b style="color: var(--text-main);">AI Utama</b> = model yang otomatis terpilih di wizard kalau member <b>tidak ganti</b> dropdown (untuk teks / PRD).</li>
+                            <li><b style="color: var(--text-main);">AI Vision</b> = model yang otomatis dipakai kalau wizard ada <b>upload gambar</b>. Member tetap bisa ganti manual di dropdown.</li>
+                            <li>Hanya 1 model bisa jadi Utama, 1 jadi Vision. Klik tombol <span class="rounded px-1.5 py-0.5 text-[0.65rem] font-bold" style="background: var(--brand); color: white;">★ Utama</span> / <span class="rounded px-1.5 py-0.5 text-[0.65rem] font-bold" style="background: color-mix(in srgb, var(--brand) 18%, transparent); color: var(--brand); border:1px solid var(--brand);">👁 Vision</span> di model yang sudah dicentang.</li>
+                        </ul>
+                    </div>
                 </div>
                 <button @click="openAdd" :disabled="availableToAdd.length===0" class="btn-primary" :style="availableToAdd.length===0 ? 'opacity:.5; cursor:not-allowed;' : ''">+ Tambah Provider</button>
             </div>
         </template>
 
         <div class="container-base py-8 space-y-6">
-            <!-- Summary bar -->
+            <!-- Summary bar — 2 defaults -->
             <div class="card flex flex-wrap items-center gap-3 text-sm">
                 <span class="rounded-full px-3 py-1.5 font-semibold" style="background: var(--bg-elevated);">{{ providers.length }} provider terpasang</span>
                 <span class="rounded-full px-3 py-1.5 font-semibold" :style="activeModels.length ? 'background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success);' : 'background: var(--bg-elevated); color: var(--text-soft);'">{{ activeModels.length }} model aktif untuk member</span>
-                <span v-if="availableToAdd.length===0" class="text-xs" style="color: var(--text-soft);">Semua provider sudah ditambahkan (7 tersedia)</span>
+                <span v-if="defaultModel" class="rounded-full px-3 py-1.5 font-bold border flex items-center gap-1.5" style="border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); color: var(--brand);">★ Utama: <span class="font-mono">{{ defaultModel }}</span></span>
+                <span v-if="defaultVisionModel" class="rounded-full px-3 py-1.5 font-bold border flex items-center gap-1.5" style="border-color: color-mix(in srgb, var(--brand) 60%, transparent); background: color-mix(in srgb, var(--brand) 6%, transparent); color: var(--brand);">👁 Vision: <span class="font-mono">{{ defaultVisionModel }}</span></span>
+                <span v-if="availableToAdd.length===0" class="text-xs" style="color: var(--text-soft);">Semua provider sudah ditambahkan</span>
             </div>
 
             <!-- Provider cards -->
             <div v-if="providers.length===0" class="card py-12 text-center">
                 <p class="font-semibold">Belum ada AI Provider.</p>
-                <p class="mt-1 text-sm" style="color: var(--text-muted);">Klik Tambah Provider → pilih OpenAI / Gemini → masukkan API Key → Fetch Models → centang model.</p>
+                <p class="mt-1 text-sm" style="color: var(--text-muted);">Klik Tambah Provider → pilih OpenAI / Gemini / OpenCode → masukkan API Key → Fetch Models → centang model.</p>
                 <button @click="openAdd" class="btn-primary mt-4">Tambah Provider Pertama</button>
             </div>
 
             <div v-else class="grid gap-6 lg:grid-cols-2">
                 <div v-for="p in providers" :key="p.id" class="card relative overflow-hidden">
-                    <div v-if="p.is_default" class="absolute left-0 top-0 h-1 w-full" style="background: linear-gradient(90deg, var(--brand), var(--brand-secondary));"></div>
                     <div class="flex items-start justify-between gap-3">
                         <div>
                             <div class="flex items-center gap-2">
                                 <h3 class="font-bold text-lg">{{ p.label }}</h3>
                                 <span class="rounded-full px-2 py-1 text-xs font-bold" style="background: var(--bg-elevated); color: var(--text-soft);">{{ p.provider }}</span>
-                                <span v-if="p.is_default" class="rounded-full px-2 py-1 text-xs font-bold" style="background: var(--brand); color: white;">Default</span>
                                 <span v-if="!p.is_active" class="rounded-full px-2 py-1 text-xs font-bold" style="background: var(--danger); color: white;">Nonaktif</span>
                             </div>
                             <p class="mt-1 font-mono text-xs" style="color: var(--text-soft);">{{ p.masked_key }} • {{ p.has_key ? 'API Key terpasang & ter-encrypt' : 'Belum ada key' }}</p>
@@ -158,30 +171,47 @@ const updateEnabled = (p, checked, modelId) => {
                     <!-- Models -->
                     <div class="mt-4">
                         <div class="flex items-center justify-between">
-                            <p class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-soft);">Model {{ p.enabled_models?.length || 0 }}/{{ p.available_models?.length || 0 }} aktif</p>
+                            <p class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-soft);">Model {{ p.enabled_models?.length || 0 }}/{{ p.available_models?.length || 0 }} aktif (dicentang = muncul di wizard)</p>
                             <div class="flex gap-2">
                                 <button @click="testApi(p)" class="text-xs font-bold rounded-full px-2.5 py-1" style="background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success);">Test API</button>
                                 <button @click="fetchExisting(p)" class="text-xs font-semibold underline" style="color: var(--brand);">Fetch Models</button>
-                                <button v-if="!p.is_default" @click="setDefault(p)" class="text-xs font-semibold" style="color: var(--text-soft);">Jadikan Default</button>
                             </div>
                         </div>
 
-                        <div v-if="p.available_models?.length" class="mt-2 max-h-48 overflow-y-auto rounded-xl border p-3 space-y-1.5" style="border-color: var(--border-soft); background: var(--bg-elevated);">
-                            <label v-for="m in p.available_models" :key="m.id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white/5 cursor-pointer">
-                                <input type="checkbox" :checked="p.enabled_models?.includes(m.id)" @change="updateEnabled(p, $event.target.checked, m.id)" />
-                                <span class="font-mono text-xs flex-1">{{ m.id }}</span>
-                                <span class="text-xs" style="color: var(--text-soft);">{{ m.label !== m.id ? m.label : '' }}</span>
-                            </label>
+                        <div v-if="p.available_models?.length" class="mt-2 max-h-72 overflow-y-auto rounded-xl border p-2 space-y-1" style="border-color: var(--border-soft); background: var(--bg-elevated);">
+                            <div v-for="m in p.available_models" :key="m.id" class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-white/5" :style="isUtama(modelValue(p,m.id)) || isVision(modelValue(p,m.id)) ? 'background: color-mix(in srgb, var(--brand) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand) 15%, transparent);' : ''">
+                                <label class="flex items-center gap-2 flex-1 cursor-pointer">
+                                    <input type="checkbox" :checked="p.enabled_models?.includes(m.id)" @change="updateEnabled(p, $event.target.checked, m.id)" />
+                                    <span class="font-mono text-xs flex-1">{{ m.id }}</span>
+                                </label>
+                                <!-- Tombol Default hanya kalau sudah dicentang -->
+                                <template v-if="p.enabled_models?.includes(m.id)">
+                                    <button
+                                        @click="setDefaultModel(modelValue(p,m.id), 'utama')"
+                                        class="text-[0.65rem] font-bold rounded-full px-2 py-1 border"
+                                        :style="isUtama(modelValue(p,m.id)) ? 'background: var(--brand); color: white; border-color: var(--brand);' : 'border-color: var(--border-soft); color: var(--text-soft);'"
+                                        :title="isUtama(modelValue(p,m.id)) ? 'Sedang jadi AI Utama' : 'Jadikan AI Utama (default teks)'"
+                                    >{{ isUtama(modelValue(p,m.id)) ? '★ Utama' : '★ Utama' }}</button>
+                                    <button
+                                        @click="setDefaultModel(modelValue(p,m.id), 'vision')"
+                                        class="text-[0.65rem] font-bold rounded-full px-2 py-1 border"
+                                        :style="isVision(modelValue(p,m.id)) ? 'background: var(--brand); color: white; border-color: var(--brand);' : 'border-color: color-mix(in srgb, var(--brand) 30%, transparent); color: var(--brand);'"
+                                        :title="isVision(modelValue(p,m.id)) ? 'Sedang jadi AI Vision' : 'Jadikan AI Vision (untuk gambar)'"
+                                    >{{ isVision(modelValue(p,m.id)) ? '👁 Vision' : '👁 Vision' }}</button>
+                                </template>
+                                <template v-else>
+                                    <span class="text-[0.6rem] px-2 py-1" style="color: var(--text-soft);">centang dulu</span>
+                                </template>
+                            </div>
                         </div>
                         <p v-else class="mt-2 text-xs" style="color: var(--text-soft);">Belum ada daftar model. Klik Fetch Models setelah isi API Key.</p>
                         <p v-if="p.last_fetched_at" class="mt-1 text-xs" style="color: var(--text-soft);">Last fetch: {{ new Date(p.last_fetched_at).toLocaleString('id-ID') }}</p>
                     </div>
 
-                    <!-- Inline edit API Key -->
                     <div class="mt-4 flex gap-2">
                         <button @click="destroy(p)" class="text-xs" style="color: var(--danger);">Hapus</button>
                         <span class="text-xs" style="color: var(--border-soft);">•</span>
-                        <span class="text-xs" style="color: var(--text-soft);">Ganti API Key via edit: hapus & tambah ulang, atau update di toggle fetch.</span>
+                        <span class="text-xs" style="color: var(--text-soft);">Hapus & tambah ulang untuk ganti API Key.</span>
                     </div>
                 </div>
             </div>
@@ -189,13 +219,17 @@ const updateEnabled = (p, checked, modelId) => {
             <!-- Member preview -->
             <div class="card">
                 <h3 class="font-semibold">Preview untuk Member (wizard)</h3>
-                <p class="mt-1 text-sm" style="color: var(--text-muted);">Member akan lihat dropdown ini di setiap langkah wizard. Hanya model yang dicentang & provider aktif yang muncul.</p>
+                <p class="mt-1 text-sm" style="color: var(--text-muted);">Member lihat dropdown di wizard. Hanya model yang <b>dicentang & provider Aktif</b> yang muncul.</p>
                 <div v-if="activeModels.length===0" class="mt-3 text-sm rounded-xl p-4 text-center" style="background: var(--bg-elevated); color: var(--text-soft);">Belum ada model aktif — centang minimal 1 model di atas.</div>
                 <div v-else class="mt-3 flex flex-wrap gap-2">
-                    <span v-for="m in activeModels" :key="m.value" class="rounded-full border px-3 py-1.5 text-xs font-mono" style="border-color: var(--border-soft); background: var(--bg-elevated);">{{ m.display }}</span>
+                    <span v-for="m in activeModels" :key="m.value" class="rounded-full border px-3 py-1.5 text-xs font-mono inline-flex items-center gap-1.5" :style="m.is_default || m.is_vision_default ? 'border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); color: var(--brand); font-weight:700;' : 'border-color: var(--border-soft); background: var(--bg-elevated);'">
+                        {{ m.value }}
+                        <span v-if="m.is_default" class="rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold" style="background: var(--brand); color: white;">Utama</span>
+                        <span v-if="m.is_vision_default" class="rounded-full px-1.5 py-0.5 text-[0.6rem] font-bold" style="background: color-mix(in srgb, var(--brand) 20%, transparent); color: var(--brand); border:1px solid var(--brand);">Vision</span>
+                    </span>
                 </div>
-                <div class="mt-4 rounded-xl p-3 text-xs" style="background: color-mix(in srgb, var(--brand) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 15%, transparent);">
-                    <b>Flow:</b> Admin tambah provider → fetch → centang → Member di <code>/member/projects/{id}/wizard/{step}</code> tinggal pilih model dari dropdown (default otomatis kepilih).
+                <div class="mt-4 rounded-xl p-3 text-xs leading-relaxed" style="background: color-mix(in srgb, var(--brand) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 15%, transparent);">
+                    <p><b>Dropdown wizard member:</b> otomatis terpilih <b class="font-mono">{{ defaultModel || '-' }}</b> (Utama). Kalau upload gambar → sistem sarankan <b class="font-mono">{{ defaultVisionModel || '-' }}</b> (Vision), tapi member bebas ganti ke model centang lain di dropdown.</p>
                 </div>
             </div>
         </div>
@@ -244,7 +278,7 @@ const updateEnabled = (p, checked, modelId) => {
                                 <span class="font-mono text-xs flex-1">{{ m.id }}</span>
                             </label>
                         </div>
-                        <p class="text-xs" style="color: var(--text-soft);">{{ form.enabled_models.length }} model akan diaktifkan untuk member.</p>
+                        <p class="text-xs" style="color: var(--text-soft);">{{ form.enabled_models.length }} model akan diaktifkan untuk member (muncul di dropdown wizard).</p>
                     </div>
 
                     <div class="flex gap-3 pt-2">

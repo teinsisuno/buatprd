@@ -17,7 +17,7 @@ const apply = () => router.get(route('member.projects.index'), { search: search.
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 class="text-2xl font-bold">Project — PRD Workspace</h1>
-                    <p class="mt-1 text-sm" style="color: var(--text-muted);">Kelola semua PRD. Wizard 8 Langkah penuh hadir di Fase C.</p>
+                    <p class="mt-1 text-sm" style="color: var(--text-muted);">Kelola semua PRD. Wizard 8 Langkah — L1-L3 chat iteratively siap.</p>
                 </div>
                 <Link :href="route('member.projects.create')" class="btn-primary">+ Buat PRD Baru</Link>
             </div>
@@ -40,7 +40,7 @@ const apply = () => router.get(route('member.projects.index'), { search: search.
             <div v-if="projects.data.length === 0" class="card mt-6 py-16 text-center">
                 <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl" style="background: var(--bg-elevated);">📄</div>
                 <h3 class="mt-4 font-semibold">Belum ada project</h3>
-                <p class="mt-1 text-sm" style="color: var(--text-muted);">Buat project pertama, lalu susun 8 langkah PRD dengan AI.</p>
+                <p class="mt-1 text-sm" style="color: var(--text-muted);">Buat project pertama, lalu susun 8 langkah PRD dengan AI. Paste URL https:// untuk clone (auto fetch 5k char).</p>
                 <Link :href="route('member.projects.create')" class="btn-primary mt-6">Buat Project Pertama</Link>
             </div>
 
@@ -49,15 +49,16 @@ const apply = () => router.get(route('member.projects.index'), { search: search.
                     <div>
                         <Link :href="route('member.wizard.show',[p.id,1])" class="font-semibold hover:underline" style="color: var(--brand);">{{ p.title }}</Link>
                         <p class="mt-1 text-xs" style="color: var(--text-soft);">{{ p.status }} • {{ p.sections_count }}/8 langkah • {{ p.progress }}% • {{ new Date(p.updated_at).toLocaleDateString('id-ID') }}</p>
+                        <p v-if="p.description" class="mt-1 text-xs line-clamp-1" style="color: var(--text-muted);">{{ p.description }}</p>
                     </div>
                     <div class="flex items-center gap-2 self-start sm:self-center">
                         <Link :href="route('member.wizard.show',[p.id,1])" class="btn-secondary text-xs py-1 px-3">Buka Wizard</Link>
-                        <span class="rounded-full px-3 py-1 text-xs font-semibold" style="background: var(--bg-elevated);">{{ p.slug.slice(0,12) }}</span>
+                        <span class="rounded-full px-3 py-1 text-xs font-semibold hidden sm:inline" style="background: var(--bg-elevated);">{{ p.slug.slice(0,12) }}</span>
                     </div>
                 </article>
             </div>
 
-            <div v-if="projects.links" class="mt-6 flex flex-wrap gap-2">
+            <div v-if="projects.links && projects.links.length>3" class="mt-6 flex flex-wrap gap-2">
                 <Link v-for="link in projects.links" :key="link.label" :href="link.url || '#'" :class="['rounded-lg px-3 py-1.5 text-xs', link.active ? 'btn-primary' : 'btn-ghost border']" style="border-color: var(--border-soft);" v-html="link.label" />
             </div>
         </div>

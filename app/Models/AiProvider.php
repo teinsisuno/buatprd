@@ -39,7 +39,7 @@ class AiProvider extends Model
         if (! $k) return '—';
         $len = strlen($k);
         if ($len <= 8) return str_repeat('*', $len);
-        return substr($k, 0, 7) . str_repeat('*', max(6, $len - 11)) . substr($k, -4);
+        return substr($k, 0, 4) . '****...****' . substr($k, -4);
     }
 
     public function enabledModelsList(): array
@@ -50,21 +50,64 @@ class AiProvider extends Model
     public function scopeActive($q) { return $q->where('is_active', true); }
     public function scopeDefault($q) { return $q->where('is_default', true); }
 
+    /**
+     * NEW: 2 defaults level MODEL (bukan provider) — disimpan di settings
+     * key: ai_default_model, ai_default_vision_model — format "provider:model"
+     */
+    public static function defaultModelValue(): ?string
+    {
+        $val = Setting::get('ai_default_model');
+        if ($val && is_string($val) && str_contains($val, ':')) return $val;
+        // fallback: model pertama dari provider aktif yang ada enabled_models
+        $first = static::active()->whereNotNull('enabled_models')->first();
+        if ($first && !empty($first->enabled_models)) return $first->provider . ':' . $first->enabled_models[0];
+        return null;
+    }
+
+    public static function defaultVisionModelValue(): ?string
+    {
+        $val = Setting::get('ai_default_vision_model');
+        if ($val && is_string($val) && str_contains($val, ':')) return $val;
+        // fallback ke default utama kalau vision belum di-set
+        return static::defaultModelValue();
+    }
+
     public static function activeModelsGrouped(): array
     {
         $providers = static::active()->whereNotNull('enabled_models')->get();
+        $default = static::defaultModelValue();
+        $defaultVision = static::defaultVisionModelValue();
         $out = [];
         foreach ($providers as $p) {
             foreach (($p->enabled_models ?? []) as $m) {
+                $value = $p->provider . ':' . $m;
+                $isDefault = $value === $default;
+                $isVisionDefault = $value === $defaultVision;
+                $tags = [];
+                if ($isDefault) $tags[] = 'Utama';
+                if ($isVisionDefault) $tags[] = 'Vision';
+                $tagStr = $tags ? ' (' . implode(' + ', $tags) . ')' : '';
                 $out[] = [
                     'provider' => $p->provider,
                     'label' => $p->label,
                     'model' => $m,
-                    'value' => $p->provider . ':' . $m,
-                    'display' => $p->label . ' — ' . $m . ($p->is_default ? ' (default)' : ''),
+                    'value' => $value,
+                    'display' => $p->label . ' — ' . $m . $tagStr,
+                    'is_default' => $isDefault,
+                    'is_vision_default' => $isVisionDefault,
                 ];
             }
         }
         return $out;
+    }
+
+    /** Helper untuk cek apakah value ada di enabled_models aktif */
+    public static function isModelEnabled(string $value): bool
+    {
+        if (! str_contains($value, ':')) return false;
+        [$prov, $model] = explode(':', $value, 2);
+        $p = static::where('provider', $prov)->where('is_active', true)->first();
+        if (! $p) return false;
+        return in_array($model, $p->enabled_models ?? []);
     }
 }

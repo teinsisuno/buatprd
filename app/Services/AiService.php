@@ -14,19 +14,39 @@ class AiService
 
     public function defaultProvider(): ?AiProvider
     {
-        return AiProvider::where('is_default', true)->where('is_active', true)->first()
-            ?? AiProvider::active()->first();
+        // NEW: default level MODEL (2), bukan provider — ambil dari settings
+        $defaultVal = \App\Models\AiProvider::defaultModelValue();
+        if ($defaultVal && str_contains($defaultVal, ':')) {
+            [$prov] = explode(':', $defaultVal, 2);
+            $p = AiProvider::where('provider', $prov)->where('is_active', true)->first();
+            if ($p) return $p;
+        }
+        return AiProvider::active()->first();
+    }
+
+    public function defaultModelValue(): ?string
+    {
+        return \App\Models\AiProvider::defaultModelValue();
+    }
+
+    public function defaultVisionModelValue(): ?string
+    {
+        return \App\Models\AiProvider::defaultVisionModelValue();
     }
 
     public function generate(int $step, array $input, ?string $modelValue = null): array
     {
+        // Jika ada gambar dan modelValue tidak dipilih user, pakai vision default
+        $hasImages = !empty($input['images']);
+        if (empty($modelValue) && $hasImages) {
+            $modelValue = $this->defaultVisionModelValue();
+        }
         $provider = $this->resolveProvider($modelValue);
         if (! $provider) {
             return ['error' => 'Belum ada AI Provider aktif. Hubungi admin di /admin/ai-providers.'];
         }
         $model = $this->resolveModel($modelValue, $provider);
-        $prompts = config('ai.prompts', []);
-        $stepPrompt = $prompts[$step] ?? ['name' => "Langkah $step"];
+        $stepPrompt = \App\Services\PromptResolver::get($step);
 
         [$system, $userContent, $images] = $this->renderPrompt($step, $input, $stepPrompt);
 
@@ -50,6 +70,16 @@ class AiService
         if ($isOpenCode) {
             $try = $this->callProvider($provider, $model, $step, $input, $system, $userContent, $images);
             if (!isset($try['error'])) return $try;
+            // Jangan fallback diam-diam — kembalikan error jelas biar wizard tidak blink tanpa sebab
+            // Simpan mock hanya untuk debugging jika caller mau, tapi error tetap diutamakan
+            return [
+                'provider' => $provider->provider,
+                'model' => $model,
+                'step' => $step,
+                'step_name' => $stepPrompt['name'] ?? "Langkah $step",
+                'mock' => false,
+                'error' => $try['error'],
+            ];
         }
 
         return [
@@ -67,7 +97,7 @@ class AiService
         $system = $stepPrompt['system'] ?? 'Kamu asisten PRD.';
         $template = $stepPrompt['user_template'] ?? null;
 
-        // Build vars with defaults
+        // Build vars with defaults — keep in sync with PromptResolver::ALLOWED_VARS
         $vars = [
             'title' => $input['title'] ?? $input['project_title'] ?? '-',
             'description' => $input['description'] ?? '-',
@@ -77,17 +107,17 @@ class AiService
             'step1_content' => $this->stringify($input['step1_content'] ?? $input['step1_final'] ?? '-'),
             'step1_final' => $this->stringify($input['step1_final'] ?? $input['step1_content'] ?? '-'),
             'step2_final' => $this->stringify($input['step2_final'] ?? $input['step2_content'] ?? '-'),
+            'step3_final' => $this->stringify($input['step3_final'] ?? '-'),
             'stack' => $this->stringify($input['stack'] ?? '-'),
             'industry_or_auto' => $input['industry'] ?? $input['industry_or_auto'] ?? 'auto-deteksi',
+            'industry' => $input['industry'] ?? $input['industry_or_auto'] ?? 'auto-deteksi',
+            'project_title' => $input['title'] ?? $input['project_title'] ?? '-',
+            'all_steps' => $this->stringify($input['all_steps'] ?? '-'),
         ];
 
         if ($template) {
-            $userContent = $template;
-            foreach ($vars as $k => $v) {
-                $userContent = str_replace('{{'.$k.'}}', $v, $userContent);
-            }
-            // clean any leftover {{...}}
-            $userContent = preg_replace('/\{\{[^}]+\}\}/', '-', $userContent);
+            // Use PromptResolver for consistent alias + cleanup handling
+            $userContent = \App\Services\PromptResolver::render($template, $vars);
         } else {
             $userContent = json_encode($input, JSON_UNESCAPED_UNICODE);
         }
@@ -137,8 +167,7 @@ class AiService
     private function callProvider(AiProvider $provider, string $model, int $step, array $input, ?string $system = null, ?string $userContent = null, array $images = []): array
     {
         if ($system === null || $userContent === null) {
-            $prompts = config('ai.prompts', []);
-            $stepPrompt = $prompts[$step] ?? ['name' => "Langkah $step", 'system' => 'Kamu asisten PRD.'];
+            $stepPrompt = \App\Services\PromptResolver::get($step);
             $system = $system ?? $stepPrompt['system'] ?? '';
             $userContent = $userContent ?? json_encode($input, JSON_UNESCAPED_UNICODE);
         }
@@ -243,13 +272,19 @@ class AiService
             foreach ($images as $b64) $parts[] = ['type'=>'image_url','image_url'=>['url'=>'data:image/jpeg;base64,'.$b64]];
             $userMsg = $parts;
         }
-        $res = Http::withToken($provider->api_key)->timeout(15)->post($url, [
+        // OpenCode: tambah max_tokens biar JSON langkah 1-3 tidak kepotong (truncated)
+        $maxTokens = 2500;
+        // OpenCode can take longer for long prompts — 60s timeout
+        // 2026-08-30: deepseek-v4-flash L1 = ~35s normal, bisa >60s saat antrian.
+        // connectTimeout ketat (koneksi gagal cepat gagal), timeout 180s untuk body lambat.
+        $res = Http::withToken($provider->api_key)->connectTimeout(15)->timeout(180)->post($url, [
             'model' => $model,
             'messages' => [
                 ['role'=>'system','content'=>$system],
                 ['role'=>'user','content'=>$userMsg],
             ],
             'temperature' => 0.7,
+            'max_tokens' => $maxTokens,
         ]);
         if ($res->failed()) return ['error' => 'OpenCode '.ucfirst($variant).' '.$res->status().': '.$res->body()];
         $content = $res->json('choices.0.message.content') ?? '—';
@@ -263,6 +298,13 @@ class AiService
             $p = AiProvider::where('provider', $prov)->where('is_active', true)->first();
             if ($p) return $p;
         }
+        // fallback ke default model utama
+        $defaultVal = $this->defaultModelValue();
+        if ($defaultVal && str_contains($defaultVal, ':')) {
+            [$prov] = explode(':', $defaultVal, 2);
+            $p = AiProvider::where('provider', $prov)->where('is_active', true)->first();
+            if ($p) return $p;
+        }
         return $this->defaultProvider();
     }
 
@@ -271,6 +313,12 @@ class AiService
         if ($modelValue && str_contains($modelValue, ':')) {
             [, $model] = explode(':', $modelValue, 2);
             if (in_array($model, $provider->enabled_models ?? [])) return $model;
+        }
+        // jika provider punya model default (utama/vision), coba pakai yang sesuai provider
+        $defaultVal = $this->defaultModelValue();
+        if ($defaultVal && str_contains($defaultVal, ':')) {
+            [$dProv, $dModel] = explode(':', $defaultVal, 2);
+            if ($dProv === $provider->provider && in_array($dModel, $provider->enabled_models ?? [])) return $dModel;
         }
         return $provider->enabled_models[0] ?? $provider->available_models[0]['id'] ?? 'gpt-4o-mini';
     }

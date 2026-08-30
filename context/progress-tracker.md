@@ -1,64 +1,48 @@
 # Progress Tracker
 
 ## Current Phase
-- Fase A Fondasi — COMPLETE (29 Aug 2026)
-- Fase B Transaksi Manual — COMPLETE (29 Aug 2026)
-- Production Ready Structure Locked
+- Wizard v2 REDESIGN (Guided Builder) — spec tersudah, IMPLEMENTASI P1 BELUM MULAI
+- Anggota Fase A & B tetap COMPLETE dan tidak dirombak
 
 ## Current Goal
-- Fase B COMPLETE: Billing, TopUp, Approve, Invoice, Kupon. Next: Fase C Wizard PRD 8 Langkah.
+- **P1 (Prioritas 1): Implementasi L1-L3 Guided Builder** sesuai `docs/WIZARD-CHAT-SPEC.md` v2:
+  L1 open input (sudah 90%), L2 klarifikasi terpandu (checkbox + custom, max 3 turn), L3 finalisasi skeleton PRD.
 
 ## Completed
-- [x] PRD Production Ready v1.0 (`docs/PRD-BUATPRD-PRODUCTION.md`)
-- [x] Audit existing (Welcome + Dashboard mock, build pass)
-- [x] Install spatie/laravel-permission 8.3 + activitylog 5.1, publish config & migrations
-- [x] Migrasi 9 tabel baru: permission, activity_log, membership_tiers, user_memberships, transactions, projects, project_sections, project_versions, tickets (+ replies)
-- [x] Models: User (HasRoles+LogsActivity), MembershipTier, UserMembership, Transaction, Project, ProjectSection, ProjectVersion, Ticket
-- [x] Seeder: 4 tiers (default 0 / basic 49k / standart 99k / premium 199k) + 3 roles + 3 demo users (superadmin/admin/member) + memberships
-- [x] Middleware: EnsureRole, EnsureTier + alias role/permission di bootstrap/app.php
-- [x] HandleInertiaRequests share: auth.user (roles, is_admin), membership (tier, limits, quota, credit), flash
-- [x] Auth: RegisteredUserController → auto role member + default membership, redirect ke member.dashboard. Login redirect role-based (admin → admin.dashboard)
-- [x] Routes: /admin/* (guard superadmin|admin) + /member/* (verified) + /dashboard legacy redirect. 60 routes, route:list OK
-- [x] Layouts: AdminLayout.vue (8 grup menu: Dashboard, Users, Membership, Paket, Transaksi, Kupon) + MemberLayout.vue (quota card, billing, topup, usage)
-- [x] Pages: Admin/Dashboard, Users/Index, Memberships/Index, Transactions/Index, ComingSoon + Member/Dashboard, Projects/Index, Projects/Create, Billing/TopUp/Usage/Tickets/Settings placeholders
-- [x] Tests: fix AuthenticationTest & RegistrationTest → assert member.dashboard, resilient to missing role/tier. php artisan test 25/25 PASS
-- [x] Build: npm run build PASS (1.08s, AdminLayout 15.18kB, MemberLayout 14.99kB)
-- [x] Git init + commit main 3efed4d
-- [x] Fase B — Migrasi coupons + add_coupon_to_transactions (coupons table, discount_amount, coupon_code)
-- [x] Models: Coupon (isValid, discountAmount) + Transaction (coupon, netAmount, proof_original_name)
-- [x] Config: config/buatprd.php (payment BCA/Mandiri + topup_options 25k/50k/100k)
-- [x] Controllers: Admin/MembershipController (store/update/destroy/reorder + activity log), Admin/TransactionController (index/show/approve/reject/proof + quota logic), Admin/CouponController (CRUD), Member/BillingController (index/checkout/store/invoice + kupon), Member/TopUpController (index/store), InvoiceController (dompdf PDF)
-- [x] Invoice: resources/views/invoices/transaction.blade.php + barryvdh/laravel-dompdf 3.1 installed
-- [x] Routes: 60 routes — /admin/memberships CRUD, /admin/transactions/{approve,reject,proof,invoice}, /admin/coupons CRUD, /member/billing/checkout/{tier}, /member/topup, /member/transactions/{proof,invoice}
-- [x] Frontend: Admin/Memberships/Index (modal CRUD fitur/limits), Admin/Transactions/Index (approve/reject modal + filter status/type), Admin/Transactions/Show, Admin/Coupons/Index, Member/Billing/Index (paket saya + pricing + riwayat), Member/Billing/Checkout (transfer info + coupon + upload), Member/TopUp/Index (opsi + upload + riwayat)
-- [x] Layout: AdminLayout tambah Kupon & Diskon di grup Keuangan
-- [x] Verifikasi: approve flow (subscription → tier+quota reset, topup → credit 50/120/270, coupon used_count) via tinker 100% OK, migrate:fresh --seed OK, npm run build PASS (1.4s), php artisan test 25/25 PASS, dompdf installed
+- [x] Fase A Fondasi + Fase B Transaksi Manual (tiers 4, roles 3, billing/topup/approve/invoice/kupon) — 60 routes, test 25/25, build PASS
+- [x] Wizard v1 (chat iteratif L1-L3) + AiService multi-provider + prompt admin /admin/wizard-prompts (WizardPrompt + versioning + rollback)
+- [x] WIZARD-CHAT-SPEC.md v2 (Guided Builder) — keputusan user: L2 dynamic questions + max turn 3 + JSON Master L4 (Vue Flow + Mermaid) + L6 opsi screens+prompt v0
+- [x] Fix sesi 30 Aug 2026: csrf-token meta (raw fetch 419), callOpenCode timeout 180s + connect 15s, enabled_models = 23 live-OK, sanitasi clone URL SPA (script/style), PDF text extraction (smalot/pdfparser), AssistantBubble.vue (structured render)
 
 ## In Progress
-- None
+- None (menunggu mulai P1)
 
-## Next Up (Fase C — Wizard PRD Inti)
-1. CRUD Project + project_sections 8 row per project (auto create)
-2. UI Wizard 8 langkah (/member/project/{id}/wizard/{step}) + progress bar
-3. AiService terpusat (OpenAI/Gemini via config/buatprd, prompt per langkah di config/ai.php)
-4. Tier guard middleware (default tidak bisa export, basic tidak bisa mermaid)
-5. Versioning snapshot + export PDF/Markdown
+## Next Up — P1: L1-L3 Guided Builder (per spec v2 §6)
+1. Schema content v2 per step (L1/L2/L3) + render fallback v1 + config `ai.wizard.max_clarify_turns` (default 3)
+2. WizardController mode per step: L1 open_input / L2 guided_choice / L3 finalize; endpoint L2: questions (AI generate) + answers (turn counter + next_available)
+3. PromptResolver: var baru `{{answers}}` + schema questions L2; update wizard_prompts DB L1-L3
+4. Frontend: QuestionCard.vue (checkbox + custom), tombol "Lanjut ke Langkah 3" logic, L3 draft + field perbaikan
+5. Test WizardChatTest v2 + build
+
+## P2 (setelah P1): L4-L5
+6. JSON Master SSOT + CRUD node/edge + MermaidConverter; @vue-flow/core 2 tab; chat-edit agent; L5 entity editor + DBML/SQL/mermaid
+
+## P3: L6-L8
+7. L6 screens+wireframe+prompt v0; L7 NFR checklist; L8 compiler + export PDF/MD + versioning (project_versions)
 
 ## Open Questions
-- None — rate Hybrid lock 0/49k/99k/199k, topup 25k/50k/100k
+- Lokasi setting max_clarify_turns (config vs UI admin) — putuskan di P1
+- Migrasi project v1 (TOYAA): preserve-read (rekomendasi)
+- Package canvas: @vue-flow/core (rekomendasi)
 
 ## Architecture Decisions
-- Tetap Laravel 13 + Inertia Vue 3 + Tailwind 4
-- Role via spatie/permission, tier via membership_tiers (JSON limits), user_memberships (quota)
-- Manual transfer V1, tanpa Midtrans — upload bukti ke storage/app/private/proofs (mimes jpg/png/webp max 2MB)
-- Dual layout AdminLayout & MemberLayout, share via HandleInertiaRequests
-- 1 user 1 active membership, 1 project 8 sections (unique project_id+step)
-- Coupon: code unique, discount_percent, max_uses, expires_at — potongan dihitung saat approve
-- Invoice PDF via barryvdh/laravel-dompdf, fallback HTML jika belum install
+- Laravel 13 + Inertia Vue 3 + Tailwind 4; **DB MySQL (buatprd)** — bukan sqlite
+- Wizard: project_sections.content JSON per step; L4-L5 pakai JSON Master nodes/edges (Vue Flow format) + Mermaid converter
+- AiService multi-provider (OpenCode base https://opencode.ai/zen/go/v1, connect 15s / timeout 180s, max_tokens 2500, enabled = 23 model)
+- Provider default: opencode_go; Utama minimax-m3 / deepseek-v4-flash (pilihan user), Vision deepseek-v4-flash-vision-exp; user suka longcat-2.0 (vision+murah)
 
 ## Session Notes
-- Credentials seed: superadmin@buatprd.test / admin@buatprd.test / member@buatprd.test — password: `password` (member premium demo)
-- DB: database.sqlite, migrate:fresh --seed OK. Tiers: 4, Roles: 3, Coupons: 1 (LAUNCH50 50% 100 uses)
-- Build & Tests PASS, siap lanjut Fase C tanpa bongkar struktur
-- PRD source: docs/PRD-BUATPRD-PRODUCTION.md Bab 5.2 & 6
-- Fase B flow verified: member pilih paket -> checkout -> upload -> admin approve -> membership tier+quota updated + coupon count + credit topup
+- Credentials seed: superadmin@buatprd.test / admin@buatprd.test / member@buatprd.test — password `password`
+- Prompt wizard dikelola user via /admin/wizard-prompts (step 1-8; 1-3 detail, 4-8 generik)
+- Spec v2 = source of truth arah: docs/WIZARD-CHAT-SPEC.md; PRD bab 5.2 & 6 untuk konteks
+- Kata kunci lanjutan: "lanjut P1 wizard v2"
